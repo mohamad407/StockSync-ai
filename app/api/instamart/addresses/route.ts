@@ -1,29 +1,20 @@
-﻿import { NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { authenticatedUid } from "@/lib/swiggy/auth";
 import { getSwiggyAddresses } from "@/lib/swiggy/client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET() {
-  if (process.env.NODE_ENV !== "development") {
-    return NextResponse.json(
-      { error: "Development endpoint only." },
-      { status: 403 },
-    );
+export async function GET(request: NextRequest) {
+  const ownerUid = await authenticatedUid(request);
+  if (!ownerUid) {
+    return NextResponse.json({ error: "Authentication required." }, { status: 401 });
   }
 
   try {
-    const addresses = await getSwiggyAddresses();
-    return NextResponse.json({ addresses });
-  } catch (error) {
-    console.error(
-      "Swiggy address lookup failed:",
-      error instanceof Error ? error.message : "Unknown error",
-    );
-
-    return NextResponse.json(
-      { error: "Unable to retrieve Swiggy addresses." },
-      { status: 502 },
-    );
+    const addresses = await getSwiggyAddresses(ownerUid);
+    return NextResponse.json({ addresses }, { headers: { "Cache-Control": "no-store" } });
+  } catch {
+    return NextResponse.json({ error: "Unable to retrieve addresses from the connected Swiggy account." }, { status: 502 });
   }
 }

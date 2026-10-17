@@ -27,3 +27,5 @@ backup-*/
 *.bak-*
 *.backup
 *.backup-*
+.stocksync-patch-backup/
+swiggy-cloud-audit.txt

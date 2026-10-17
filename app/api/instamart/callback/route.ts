@@ -1,116 +1,77 @@
 ﻿import { NextRequest, NextResponse } from "next/server";
-import {
-  exchangeAuthorizationCode,
-  statesMatch,
-} from "@/lib/swiggy/oauth";
+import { exchangeAuthorizationCode, statesMatch } from "@/lib/swiggy/oauth";
 import { saveSwiggyTokens } from "@/lib/swiggy/token-store";
+import { unsealSwiggySecret } from "@/lib/swiggy/secure-store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function clearOAuthCookies(response: NextResponse) {
-  response.cookies.set("swiggy_oauth_state", "", {
+type OAuthTransaction = {
+  ownerUid: string;
+  state: string;
+  verifier: string;
+  createdAt: number;
+};
+
+function clearCookie(response: NextResponse) {
+  response.cookies.set("swiggy_oauth_tx", "", {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
     path: "/api/instamart/callback",
     maxAge: 0,
   });
-
-  response.cookies.set("swiggy_oauth_verifier", "", {
-    path: "/api/instamart/callback",
-    maxAge: 0,
-  });
-
   return response;
 }
 
 export async function GET(request: NextRequest) {
-  if (process.env.NODE_ENV !== "development") {
-    return NextResponse.json(
-      { error: "Authorization callback is disabled outside local development." },
-      { status: 403 },
-    );
-  }
-
   const params = request.nextUrl.searchParams;
   const code = params.get("code");
   const returnedState = params.get("state");
   const providerError = params.get("error");
+  const sealedTransaction = request.cookies.get("swiggy_oauth_tx")?.value;
 
-  if (providerError) {
-    return clearOAuthCookies(
-      NextResponse.json(
-        { error: "Swiggy authorization failed or was declined. Start again." },
-        { status: 400 },
-      ),
-    );
+  if (providerError || !code || !returnedState || !sealedTransaction) {
+    return clearCookie(NextResponse.json({ error: "Swiggy authorization was cancelled or the callback was incomplete. Start again." }, { status: 400 }));
   }
 
-  const expectedState = request.cookies.get("swiggy_oauth_state")?.value;
-  const verifier = request.cookies.get("swiggy_oauth_verifier")?.value;
+  let transaction: OAuthTransaction;
+  try {
+    transaction = unsealSwiggySecret<OAuthTransaction>(sealedTransaction);
+  } catch {
+    return clearCookie(NextResponse.json({ error: "Swiggy authorization session is invalid. Start again." }, { status: 400 }));
+  }
 
   if (
-    !code ||
-    !returnedState ||
-    !expectedState ||
-    !verifier ||
-    !statesMatch(returnedState, expectedState)
+    !transaction.ownerUid || !transaction.verifier || !transaction.state ||
+    !Number.isFinite(transaction.createdAt) ||
+    Date.now() - transaction.createdAt > 10 * 60 * 1000 ||
+    transaction.createdAt > Date.now() + 30_000 ||
+    !statesMatch(returnedState, transaction.state)
   ) {
-    return clearOAuthCookies(
-      NextResponse.json(
-        {
-          error:
-            "OAuth state is missing or invalid. Start from /api/instamart/auth/start and allow the browser to redirect back automatically.",
-        },
-        { status: 400 },
-      ),
-    );
+    return clearCookie(NextResponse.json({ error: "Swiggy authorization state is invalid or expired. Start again." }, { status: 400 }));
   }
 
   const clientId = process.env.SWIGGY_CLIENT_ID;
   const redirectUri = process.env.SWIGGY_REDIRECT_URI;
-
   if (!clientId || !redirectUri) {
-    return clearOAuthCookies(
-      NextResponse.json(
-        { error: "Swiggy OAuth environment variables are missing." },
-        { status: 500 },
-      ),
-    );
+    return clearCookie(NextResponse.json({ error: "Swiggy OAuth environment variables are missing." }, { status: 500 }));
   }
 
   try {
     const tokenResponse = await exchangeAuthorizationCode({
       code,
-      verifier,
+      verifier: transaction.verifier,
       clientId,
       redirectUri,
     });
+    await saveSwiggyTokens(transaction.ownerUid, tokenResponse);
 
-    if (!tokenResponse.access_token) {
-      throw new Error("Swiggy did not return an access token.");
-    }
-
-    saveSwiggyTokens(tokenResponse);
-
-    const response = NextResponse.redirect(
-      new URL("/?instamart=connected", request.url),
-    );
-
-    return clearOAuthCookies(response);
+    const response = NextResponse.redirect(new URL("/?instamart=connected", request.url));
+    return clearCookie(response);
   } catch (error) {
-    // Do not log authorization codes or tokens.
-    console.error(
-      "Swiggy OAuth token exchange failed:",
-      error instanceof Error ? error.message : "Unknown error",
-    );
-
-    return clearOAuthCookies(
-      NextResponse.json(
-        {
-          error:
-            "Swiggy token exchange failed. Check the development terminal for the HTTP status and verify your OAuth configuration.",
-        },
-        { status: 502 },
-      ),
-    );
+    // Never log authorization codes, access tokens, or refresh tokens.
+    console.error("Swiggy OAuth callback failed:", error instanceof Error ? error.message : "Unknown error");
+    return clearCookie(NextResponse.json({ error: "Swiggy authorization could not be completed. Verify the registered redirect URI and server configuration." }, { status: 502 }));
   }
 }
