@@ -21,3 +21,9 @@ firebase-adminsdk*.json
 *.key
 *.p12
 *.pfx
+backups/
+backup-*/
+*.bak
+*.bak-*
+*.backup
+*.backup-*
