@@ -1,0 +1,35 @@
+import type { Cart } from "@/lib/types";
+import { formatINR } from "@/lib/predict";
+import { Button, Card, DemoBadge } from "./ui";
+
+export default function CartView({ cart, onBack, onNext }: { cart: Cart; onBack: () => void; onNext: () => void }) {
+  return (
+    <div className="animate-rise pb-24">
+      <button onClick={onBack} className="mt-8 text-sm font-semibold text-ink-soft hover:text-ink">← Change products</button>
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <h1 className="font-display text-4xl font-bold tracking-tight">Your Restock Cart</h1>
+        <DemoBadge />
+      </div>
+
+      <Card className="mt-6 divide-y divide-line">
+        {cart.lines.map((l) => (
+          <div key={l.product.id} className="flex items-center gap-4 p-4">
+            <span className="grid h-12 w-12 place-items-center rounded-2xl bg-paper text-2xl" aria-hidden>{l.product.emoji}</span>
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold">{l.product.name}</p>
+              <p className="text-sm text-ink-soft">{l.product.size}{l.qty > 1 ? `, x${l.qty}` : ""}</p>
+            </div>
+            <p className="font-display text-lg font-bold">{formatINR(l.product.price * l.qty)}</p>
+          </div>
+        ))}
+        <div className="flex items-center justify-between p-4">
+          <p className="font-semibold text-ink-soft">Estimated total</p>
+          <p className="font-display text-2xl font-bold text-sync-deep">{formatINR(cart.total)}</p>
+        </div>
+      </Card>
+
+      <p className="mt-4 text-sm text-ink-soft">Nothing is ordered yet. You&apos;ll review everything on the next screen.</p>
+      <Button className="mt-5 w-full sm:w-auto" onClick={onNext}>Review order</Button>
+    </div>
+  );
+}

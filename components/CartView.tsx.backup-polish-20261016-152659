@@ -1,0 +1,164 @@
+﻿"use client";
+
+import type { Cart } from "@/lib/types";
+import { formatINR } from "@/lib/predict";
+import { Button, Card } from "./ui";
+
+export default function CartView({
+  cart,
+  onBack,
+  onNext,
+}: {
+  cart: Cart;
+  onBack: () => void;
+  onNext: () => void;
+}) {
+  return (
+    <div className="animate-rise pb-24">
+      <button
+        onClick={onBack}
+        className="mt-8 text-sm font-semibold text-ink-soft hover:text-ink"
+      >
+        ← Change products
+      </button>
+
+      <div className="mt-3">
+        <h1 className="font-display text-3xl font-bold tracking-tight sm:text-4xl">
+          Your Restock Cart
+        </h1>
+        <p className="mt-2 text-sm text-ink-soft">
+          Review your selected Instamart products before continuing.
+        </p>
+      </div>
+
+      <div className="mt-6 grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+        <Card className="overflow-hidden divide-y divide-line">
+          {cart.lines.length === 0 ? (
+            <div className="p-8 text-center">
+              <p className="font-semibold">Your cart is empty</p>
+              <Button className="mt-4" onClick={onBack}>
+                Find products
+              </Button>
+            </div>
+          ) : (
+            cart.lines.map((line) => {
+              const product = line.product;
+
+              return (
+                <div
+                  key={product.id}
+                  className="flex gap-3 p-4 sm:gap-5 sm:p-5"
+                >
+                  <div className="grid h-24 w-24 shrink-0 place-items-center overflow-hidden rounded-xl bg-paper sm:h-28 sm:w-28">
+                    {product.imageUrl ? (
+                      <img
+                        src={product.imageUrl}
+                        alt={product.name}
+                        className="h-full w-full object-contain p-2"
+                        loading="lazy"
+                      />
+                    ) : (
+                      <span className="text-3xl" aria-hidden>
+                        {product.emoji}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="min-w-0 flex-1">
+                    <p className="line-clamp-2 font-semibold text-ink">
+                      {product.name}
+                    </p>
+
+                    <p className="mt-1 text-sm text-ink-soft">
+                      {product.brand}
+                    </p>
+
+                    <p className="mt-1 text-sm text-ink-soft">
+                      {product.size}
+                    </p>
+
+                    {product.rating && (
+                      <p className="mt-2 text-xs text-ink-soft">
+                        ★ {product.rating}
+                        {product.ratingCount
+                          ? ` (${product.ratingCount})`
+                          : ""}
+                      </p>
+                    )}
+
+                    <p className="mt-3 text-xs text-ink-mute">
+                      Quantity: {line.qty}
+                    </p>
+                  </div>
+
+                  <div className="shrink-0 text-right">
+                    <p className="font-display text-lg font-bold">
+                      {formatINR(product.price * line.qty)}
+                    </p>
+
+                    {product.mrp && product.mrp > product.price && (
+                      <p className="text-xs text-ink-mute line-through">
+                        {formatINR(product.mrp * line.qty)}
+                      </p>
+                    )}
+
+                    {product.mrp && product.mrp > product.price && (
+                      <p className="mt-1 text-xs font-bold text-green-700">
+                        SAVE {formatINR((product.mrp - product.price) * line.qty)}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </Card>
+
+        <Card className="p-5 lg:sticky lg:top-6">
+          <h2 className="font-display text-xl font-bold">Bill details</h2>
+
+          <div className="mt-5 flex justify-between gap-3 text-sm">
+            <span className="text-ink-soft">
+              Items ({cart.lines.reduce((sum, line) => sum + line.qty, 0)})
+            </span>
+            <span className="font-semibold">{formatINR(cart.total)}</span>
+          </div>
+
+          <div className="mt-3 flex justify-between gap-3 text-sm">
+            <span className="text-ink-soft">Delivery fee</span>
+            <span className="font-semibold">Not calculated</span>
+          </div>
+
+          <div className="mt-4 border-t border-line pt-4">
+            <div className="flex justify-between gap-3">
+              <span className="font-semibold">Estimated total</span>
+              <span className="font-display text-xl font-bold text-sync-deep">
+                {formatINR(cart.total)}
+              </span>
+            </div>
+          </div>
+
+          <p className="mt-4 rounded-xl bg-paper p-3 text-xs leading-5 text-ink-soft">
+            This is a local cart preview. No order or payment will be placed.
+            Final prices and availability may change.
+          </p>
+
+          <Button
+            className="mt-5 w-full"
+            onClick={onNext}
+            disabled={cart.lines.length === 0}
+          >
+            Review selections
+          </Button>
+
+          <button
+            onClick={onBack}
+            className="mt-3 w-full py-2 text-sm font-semibold text-sync-deep hover:underline"
+          >
+            Continue shopping
+          </button>
+        </Card>
+      </div>
+    </div>
+  );
+}
