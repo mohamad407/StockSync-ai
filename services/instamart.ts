@@ -1,4 +1,5 @@
-﻿import type { Cart, Product } from "@/lib/types";
+﻿import { firebaseAuth } from "@/lib/firebase/client";
+import type { Cart, Product } from "@/lib/types";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -157,9 +158,21 @@ function parseProducts(payload: unknown, query: string): Product[] {
 }
 
 export async function searchProducts(query: string): Promise<Product[]> {
+  const user = firebaseAuth.currentUser;
+
+  if (!user) {
+    throw new Error("Sign in to StockSync AI before searching Instamart.");
+  }
+
+  const token = await user.getIdToken();
+
   const response = await fetch(
     `/api/instamart?q=${encodeURIComponent(query)}`,
-    { method: "GET", cache: "no-store" },
+    {
+      method: "GET",
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    },
   );
 
   const payload: unknown = await response.json().catch(() => null);
@@ -249,5 +262,6 @@ export async function checkout(cartId: string): Promise<CheckoutResult> {
   const cart = await getCart(cartId);
   return { status: "prepared", cart, etaMinutes: [10, 15], orderPlaced: false };
 }
+
 
 
