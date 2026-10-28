@@ -1,15 +1,25 @@
-﻿"use client";
+"use client";
 
 import { useMemo } from "react";
 import { useInventory } from "@/lib/useInventory";
 import { useHistory } from "@/lib/useHistory";
-import { Card, Button } from "./ui";
+import { Button } from "./ui";
 import GroceryHistory from "./GroceryHistory";
 import InventoryManager from "./InventoryManager";
 import InstamartOrderSync from "./InstamartOrderSync";
 import RestockRecommendations from "./RestockRecommendations";
+import LowStockEmailButton from "./LowStockEmailButton";
 
-function StatCard({
+type Tone = "green" | "amber" | "blue" | "slate";
+
+const TONE_CLASSES: Record<Tone, string> = {
+  green: "bg-sync-soft text-sync-deep",
+  amber: "bg-amber2-soft text-amber2",
+  blue: "bg-sky-50 text-sky-700",
+  slate: "bg-slate-100 text-slate-700",
+};
+
+function StatTile({
   label,
   value,
   detail,
@@ -21,39 +31,69 @@ function StatCard({
   value: string | number;
   detail: string;
   icon: string;
-  tone?: "green" | "amber" | "blue";
+  tone?: Tone;
   index?: number;
 }) {
-  const toneClasses = {
-    green: "bg-emerald-50 text-emerald-800 ring-emerald-100",
-    amber: "bg-amber-50 text-amber-800 ring-amber-100",
-    blue: "bg-sky-50 text-sky-800 ring-sky-100",
-  };
-
   return (
-    <article
-      className="ss-card animate-rise min-w-0 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm sm:rounded-3xl sm:p-5"
-      style={{ animationDelay: `${index * 90}ms` }}
+    <div
+      className="ss-card animate-rise min-w-0 rounded-2xl border border-line bg-white p-4 shadow-card sm:p-5"
+      style={{ animationDelay: `${index * 70}ms` }}
     >
-      <div className="flex items-start justify-between gap-2">
-        <p className="text-xs font-semibold leading-5 text-slate-500 sm:text-sm">
-          {label}
-        </p>
+      <div className="flex items-center justify-between gap-2">
         <span
-          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-lg ring-1 ${toneClasses[tone]}`}
           aria-hidden="true"
+          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-sm font-bold ${TONE_CLASSES[tone]}`}
         >
           {icon}
         </span>
+        <span className="truncate text-[11px] font-semibold uppercase tracking-wider text-ink-mute">
+          {label}
+        </span>
       </div>
-
-      <p className="mt-4 font-display text-3xl font-bold tracking-tight text-slate-950 sm:mt-5 sm:text-4xl">
+      <p className="mt-4 font-display text-3xl font-bold tracking-tight text-ink sm:text-4xl">
         {value}
       </p>
-      <p className="mt-1 text-xs leading-5 text-slate-500 sm:text-sm">
-        {detail}
-      </p>
-    </article>
+      <p className="mt-1 text-xs leading-5 text-ink-soft">{detail}</p>
+    </div>
+  );
+}
+
+function StockRing({
+  percent,
+  loading,
+}: {
+  percent: number;
+  loading: boolean;
+}) {
+  const radius = 42;
+  const circumference = 2 * Math.PI * radius;
+  const shown = loading ? 0 : percent;
+  const offset = circumference * (1 - shown / 100);
+
+  return (
+    <div className="relative grid h-32 w-32 shrink-0 place-items-center">
+      <svg viewBox="0 0 100 100" className="h-full w-full -rotate-90" aria-hidden="true">
+        <circle cx="50" cy="50" r={radius} fill="none" stroke="rgba(255,255,255,0.14)" strokeWidth="7" />
+        <circle
+          cx="50"
+          cy="50"
+          r={radius}
+          fill="none"
+          stroke="#6EE7B7"
+          strokeWidth="7"
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          strokeDashoffset={offset}
+          className="transition-[stroke-dashoffset] duration-1000 ease-out"
+        />
+      </svg>
+      <div className="absolute text-center">
+        <p className="font-display text-3xl font-bold">{loading ? "—" : `${percent}%`}</p>
+        <p className="text-[10px] font-semibold uppercase tracking-widest text-emerald-100/70">
+          stocked
+        </p>
+      </div>
+    </div>
   );
 }
 
@@ -61,44 +101,42 @@ export default function Dashboard({ onView }: { onView: () => void }) {
   const inventory = useInventory();
   const history = useHistory();
 
+  const loading = inventory.loading || history.loading;
+  const error = inventory.error || history.error;
+
   const summary = useMemo(() => {
-    const lowStock = inventory.items.filter((item) => {
+    const lowStockItems = inventory.items.filter((item) => {
       const quantity = Number(item.quantity);
       const threshold = Number(item.lowStockThreshold);
-
       return (
         Number.isFinite(quantity) &&
         Number.isFinite(threshold) &&
         quantity <= threshold
       );
-    }).length;
+    });
+
+    const totalItems = inventory.items.length;
+    const percent =
+      totalItems === 0
+        ? 0
+        : Math.round(((totalItems - lowStockItems.length) / totalItems) * 100);
 
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
     const thisMonth = history.events.filter((event) => {
       const date = new Date(event.eventDate);
-      return (
-        !Number.isNaN(date.getTime()) &&
-        date >= monthStart &&
-        date <= now
-      );
+      return !Number.isNaN(date.getTime()) && date >= monthStart && date <= now;
     });
 
     return {
-      totalItems: inventory.items.length,
-      lowStock,
-      purchased: thisMonth.filter(
-        (event) => event.eventType === "purchased"
-      ).length,
-      consumed: thisMonth.filter(
-        (event) => event.eventType === "consumed"
-      ).length,
+      totalItems,
+      lowStockItems,
+      percent,
+      purchased: thisMonth.filter((e) => e.eventType === "purchased").length,
+      consumed: thisMonth.filter((e) => e.eventType === "consumed").length,
     };
   }, [inventory.items, history.events]);
-
-  const loading = inventory.loading || history.loading;
-  const error = inventory.error || history.error;
 
   const greeting = (() => {
     const hour = new Date().getHours();
@@ -107,135 +145,129 @@ export default function Dashboard({ onView }: { onView: () => void }) {
     return "Good evening";
   })();
 
+  const lowCount = summary.lowStockItems.length;
+  const previewItems = summary.lowStockItems.slice(0, 5);
+  const hiddenCount = Math.max(0, lowCount - previewItems.length);
+
+  const headline = loading
+    ? "Syncing your pantry…"
+    : summary.totalItems === 0
+      ? "Start by adding what's in your pantry."
+      : lowCount > 0
+        ? `${lowCount} ${lowCount === 1 ? "item needs" : "items need"} restocking soon.`
+        : "Everything is above its restock threshold.";
+
   return (
-    <main className="space-y-8 pb-8 pt-5 sm:space-y-10 sm:pt-8">
-      {/* Compact welcome area */}
-      <section className="ss-animate-in relative isolate overflow-hidden rounded-3xl bg-[#075640] p-5 text-white shadow-[0_18px_50px_-24px_rgba(7,86,64,0.65)] sm:rounded-[2rem] sm:p-8 lg:p-10">
+    <main className="space-y-6 pb-10 pt-5 sm:space-y-8 sm:pt-8">
+      {/* Hero */}
+      <section className="ss-animate-in relative isolate overflow-hidden rounded-3xl bg-gradient-to-br from-[#0B7A5C] via-[#075640] to-[#053D2F] p-6 text-white shadow-[0_24px_60px_-28px_rgba(7,86,64,0.7)] sm:rounded-[2rem] sm:p-8 lg:p-10">
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute -right-16 -top-20 -z-10 h-64 w-64 rounded-full border border-white/10 sm:h-80 sm:w-80"
+          className="pointer-events-none absolute inset-0 -z-10 opacity-[0.07]"
+          style={{
+            backgroundImage:
+              "radial-gradient(circle at 1px 1px, #ffffff 1px, transparent 0)",
+            backgroundSize: "22px 22px",
+          }}
         />
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute -right-5 top-12 -z-10 h-36 w-36 rounded-full bg-emerald-300/10 blur-3xl sm:right-20"
+          className="pointer-events-none absolute -right-24 -top-24 -z-10 h-72 w-72 rounded-full bg-emerald-300/10 blur-3xl"
         />
 
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="inline-flex items-center gap-2 rounded-full border border-emerald-200/20 bg-white/10 px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-emerald-50">
-            <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-300" />
-            Your pantry, in sync
-          </span>
-          <span className="rounded-full border border-white/15 px-3 py-1.5 text-[11px] font-medium text-white/75">
-            {loading ? "Syncing data" : "Personal dashboard"}
-          </span>
-        </div>
-
-        <div className="mt-6 grid items-end gap-7 lg:grid-cols-[1fr_auto]">
-          <div className="max-w-2xl">
-            <p className="text-sm font-medium text-emerald-100/80">
-              {greeting} 👋
+        <div className="flex flex-col gap-8 lg:flex-row lg:items-center lg:justify-between">
+          <div className="min-w-0 max-w-xl">
+            <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-emerald-200/90">
+              {greeting}
             </p>
-            <h1 className="mt-2 max-w-xl font-display text-3xl font-bold leading-[1.12] tracking-tight sm:text-4xl lg:text-5xl">
-              Less waste.
-              <br className="hidden sm:block" /> More in sync.
+            <h1 className="mt-2 font-display text-3xl font-bold leading-[1.15] tracking-tight sm:text-4xl lg:text-[2.75rem]">
+              Your pantry, at a glance.
             </h1>
-            <p className="mt-4 max-w-lg text-sm leading-6 text-emerald-50/80 sm:text-base sm:leading-7">
-              Know what is in your pantry, spot what is running low, and plan
-              your next grocery run with confidence.
+            <p className="mt-3 text-sm leading-6 text-emerald-50/85 sm:text-base">
+              {headline}
             </p>
 
-            <div className="mt-6 flex flex-col gap-3 min-[420px]:flex-row">
+            <div className="mt-6 flex flex-col gap-3 sm:flex-row">
               <button
                 type="button"
                 onClick={onView}
-                className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-white px-5 py-3 text-sm font-bold text-[#075640] shadow-sm hover:bg-emerald-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white min-[420px]:w-auto"
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-white px-5 py-2.5 text-sm font-bold text-sync-deep shadow-sm transition hover:bg-emerald-50"
               >
-                Plan groceries <span aria-hidden="true">↗</span>
+                Plan groceries <span aria-hidden="true">→</span>
               </button>
-
               <a
                 href="#saved-inventory"
-                className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl border border-white/25 bg-white/5 px-5 py-3 text-sm font-semibold text-white hover:bg-white/10 min-[420px]:w-auto"
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-white/25 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-white/10"
               >
-                Manage pantry <span aria-hidden="true">↓</span>
+                Manage pantry
               </a>
             </div>
           </div>
 
-          <div className="hidden min-w-40 rounded-2xl border border-white/15 bg-white/[0.07] p-5 backdrop-blur-sm lg:block">
-            <p className="text-xs font-semibold uppercase tracking-widest text-emerald-100/70">
-              Pantry status
-            </p>
-            <p className="mt-3 font-display text-4xl font-bold">
-              {loading ? "—" : summary.totalItems}
-            </p>
-            <p className="mt-1 text-sm text-emerald-50/75">tracked items</p>
-            <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-white/15">
-              <div
-                className="h-full rounded-full bg-emerald-300 transition-all duration-700"
-                style={{
-                  width: loading
-                    ? "12%"
-                    : summary.totalItems === 0
-                      ? "0%"
-                      : `${Math.min(100, Math.max(12, summary.totalItems * 12))}%`,
-                }}
-              />
+          <div className="flex items-center gap-6 rounded-2xl border border-white/15 bg-white/[0.06] p-5 backdrop-blur-sm">
+            <StockRing percent={summary.percent} loading={loading} />
+            <div className="min-w-0">
+              <p className="font-display text-2xl font-bold">
+                {loading ? "—" : summary.totalItems}
+              </p>
+              <p className="text-sm text-emerald-50/75">tracked items</p>
+              <p className="mt-3 text-sm text-emerald-50/75">
+                <span className="font-semibold text-white">
+                  {loading ? "—" : lowCount}
+                </span>{" "}
+                running low
+              </p>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Overview */}
+      {error && (
+        <div
+          role="status"
+          className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"
+        >
+          Some summary data could not be loaded. Check the sections below for
+          more details.
+        </div>
+      )}
+
+      {/* Stats */}
       <section aria-labelledby="overview-title">
-        <div className="mb-4 flex items-end justify-between gap-3 sm:mb-5">
+        <div className="mb-4 flex items-end justify-between gap-3">
           <div>
-            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-emerald-700 sm:text-xs">
-              Your household
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-sync sm:text-xs">
+              Overview
             </p>
             <h2
               id="overview-title"
-              className="mt-1 font-display text-xl font-bold tracking-tight text-slate-950 sm:text-2xl"
+              className="mt-1 font-display text-xl font-bold tracking-tight text-ink sm:text-2xl"
             >
-              The big picture
+              This household
             </h2>
           </div>
-          <span className="pb-1 text-right text-[11px] text-slate-500 sm:text-xs">
+          <span className="pb-1 text-[11px] text-ink-mute sm:text-xs">
             {loading ? "Updating…" : "Live account data"}
           </span>
         </div>
 
-        {error && (
-          <div
-            role="status"
-            className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"
-          >
-            Some summary data could not be loaded. Check the sections below
-            for more details.
-          </div>
-        )}
-
         <div className="ss-stagger grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
-          <StatCard
+          <StatTile
             label="Pantry items"
             value={loading ? "—" : summary.totalItems}
             detail="Items being tracked"
             icon="▦"
             index={0}
           />
-          <StatCard
+          <StatTile
             label="Running low"
-            value={loading ? "—" : summary.lowStock}
-            detail={
-              summary.lowStock === 1
-                ? "Item needs attention"
-                : "Items need attention"
-            }
+            value={loading ? "—" : lowCount}
+            detail={lowCount === 1 ? "Item at threshold" : "Items at threshold"}
             icon="!"
-            tone={summary.lowStock > 0 ? "amber" : "green"}
+            tone={lowCount > 0 ? "amber" : "green"}
             index={1}
           />
-          <StatCard
+          <StatTile
             label="Purchased"
             value={loading ? "—" : summary.purchased}
             detail="Events this month"
@@ -243,84 +275,131 @@ export default function Dashboard({ onView }: { onView: () => void }) {
             tone="blue"
             index={2}
           />
-          <StatCard
+          <StatTile
             label="Consumed"
             value={loading ? "—" : summary.consumed}
             detail="Events this month"
             icon="✓"
+            tone="slate"
             index={3}
           />
         </div>
       </section>
 
-      {/* Action cards */}
-      <section className="grid gap-4 lg:grid-cols-2">
-        <Card className="ss-card relative overflow-hidden p-5 sm:p-6">
-          <div className="flex items-start gap-4">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-xl text-emerald-800">
-              🥬
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-700">
-                Start here
-              </p>
-              <h3 className="mt-1 font-display text-lg font-bold text-slate-950 sm:text-xl">
-                Keep your pantry current
+      {/* Attention + quick actions */}
+      <section className="grid gap-4 lg:grid-cols-3">
+        <div className="rounded-3xl border border-line bg-white p-5 shadow-card sm:p-6 lg:col-span-2">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="font-display text-lg font-bold text-ink sm:text-xl">
+                Needs attention
               </h3>
-              <p className="mt-2 text-sm leading-6 text-slate-600">
-                Update quantities and record what your household uses to
-                improve restock recommendations.
+              <p className="mt-1 text-sm text-ink-soft">
+                Items that have reached their restock threshold.
               </p>
-              <a
-                href="#saved-inventory"
-                className="mt-4 inline-flex min-h-10 items-center gap-2 text-sm font-bold text-emerald-800 hover:text-emerald-950"
-              >
-                Update inventory <span aria-hidden="true">→</span>
-              </a>
             </div>
+            {lowCount > 0 && (
+              <span className="rounded-full bg-amber2-soft px-3 py-1 text-xs font-semibold text-amber2">
+                {lowCount} {lowCount === 1 ? "item" : "items"}
+              </span>
+            )}
           </div>
-        </Card>
 
-        <Card className="ss-card relative overflow-hidden bg-slate-950 p-5 text-white sm:p-6">
-          <div className="pointer-events-none absolute -right-8 -top-10 h-36 w-36 rounded-full bg-emerald-500/15 blur-2xl" />
-          <div className="relative flex items-start gap-4">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white/10 text-xl">
-              ✦
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-300">
-                StockSync intelligence
-              </p>
-              <h3 className="mt-1 font-display text-lg font-bold sm:text-xl">
-                Make smarter grocery decisions
-              </h3>
-              <p className="mt-2 text-sm leading-6 text-slate-300">
-                Ask the AI assistant about your stock, potential waste, or
-                grocery planning using the data available to your account.
-              </p>
-              <p className="mt-4 text-xs text-slate-400">
-                Open the assistant using the chat control at the bottom of
-                your screen.
+          {loading ? (
+            <p className="mt-6 text-sm text-ink-soft">Checking your pantry…</p>
+          ) : lowCount === 0 ? (
+            <div className="mt-6 flex items-center gap-3 rounded-2xl bg-sync-soft/60 p-4">
+              <span aria-hidden="true" className="grid h-8 w-8 place-items-center rounded-full bg-white text-sync-deep">
+                ✓
+              </span>
+              <p className="text-sm text-sync-deep">
+                Nothing needs restocking right now.
               </p>
             </div>
+          ) : (
+            <ul className="mt-5 divide-y divide-line">
+              {previewItems.map((item) => (
+                <li key={item.id} className="flex items-center justify-between gap-3 py-3">
+                  <div className="min-w-0">
+                    <p className="truncate font-semibold text-ink">{item.name}</p>
+                    <p className="text-xs text-ink-soft">
+                      Restock at {item.lowStockThreshold} {item.unit}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-3">
+                    <span className="text-sm font-semibold text-amber2">
+                      {item.quantity} {item.unit}
+                    </span>
+                    <span className="rounded-full bg-alert-soft px-2.5 py-1 text-[11px] font-semibold text-alert">
+                      Low
+                    </span>
+                  </div>
+                </li>
+              ))}
+              {hiddenCount > 0 && (
+                <li className="py-3 text-xs text-ink-soft">
+                  +{hiddenCount} more in your pantry list below
+                </li>
+              )}
+            </ul>
+          )}
+
+          <div className="mt-5 border-t border-line pt-5">
+            <LowStockEmailButton disabled={loading || lowCount === 0} />
           </div>
-        </Card>
+        </div>
+
+        <div className="flex flex-col gap-3 rounded-3xl border border-line bg-white p-5 shadow-card sm:p-6">
+          <h3 className="font-display text-lg font-bold text-ink sm:text-xl">
+            Quick actions
+          </h3>
+
+          <button
+            type="button"
+            onClick={onView}
+            className="group flex items-center justify-between rounded-2xl border border-line px-4 py-3.5 text-left transition hover:border-sync hover:bg-sync-soft/50"
+          >
+            <span>
+              <span className="block text-sm font-semibold text-ink">Plan groceries</span>
+              <span className="block text-xs text-ink-soft">Build your restock list</span>
+            </span>
+            <span aria-hidden="true" className="text-sync transition group-hover:translate-x-0.5">→</span>
+          </button>
+
+          <a
+            href="#saved-inventory"
+            className="group flex items-center justify-between rounded-2xl border border-line px-4 py-3.5 transition hover:border-sync hover:bg-sync-soft/50"
+          >
+            <span>
+              <span className="block text-sm font-semibold text-ink">Update pantry</span>
+              <span className="block text-xs text-ink-soft">Change quantities and thresholds</span>
+            </span>
+            <span aria-hidden="true" className="text-sync transition group-hover:translate-y-0.5">↓</span>
+          </a>
+
+          <div className="mt-auto rounded-2xl bg-ink p-4 text-white">
+            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-300">
+              Assistant
+            </p>
+            <p className="mt-1.5 text-sm leading-6 text-slate-300">
+              Ask about stock, waste or what to buy next. Use the chat button at the bottom right.
+            </p>
+          </div>
+        </div>
       </section>
 
-      {/* Existing functional features */}
+      {/* Functional sections */}
       <section id="saved-inventory" className="scroll-mt-5 space-y-3">
-        <div className="flex flex-wrap items-end justify-between gap-2">
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-emerald-700 sm:text-xs">
-              Your essentials
-            </p>
-            <h2 className="mt-1 font-display text-xl font-bold tracking-tight text-slate-950 sm:text-2xl">
-              Pantry inventory
-            </h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Manage the items you already have at home.
-            </p>
-          </div>
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-sync sm:text-xs">
+            Pantry
+          </p>
+          <h2 className="mt-1 font-display text-xl font-bold tracking-tight text-ink sm:text-2xl">
+            Inventory
+          </h2>
+          <p className="mt-1 text-sm text-ink-soft">
+            Manage the items you already have at home.
+          </p>
         </div>
         <InventoryManager />
       </section>
@@ -337,24 +416,16 @@ export default function Dashboard({ onView }: { onView: () => void }) {
         <RestockRecommendations />
       </section>
 
-      {/* Final call to action */}
-      <section className="rounded-3xl border border-emerald-100 bg-emerald-50/70 p-5 sm:flex sm:items-center sm:justify-between sm:gap-6 sm:p-7">
+      <section className="flex flex-col gap-4 rounded-3xl bg-sync-soft/60 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-7">
         <div className="min-w-0">
-          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-800">
+          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-sync-deep">
             Ready for your next run?
           </p>
-          <h2 className="mt-2 font-display text-xl font-bold text-slate-950">
+          <h2 className="mt-1.5 font-display text-lg font-bold text-ink sm:text-xl">
             Turn your pantry into a plan.
           </h2>
-          <p className="mt-1 text-sm leading-6 text-slate-600">
-            Continue to shopping to plan your next grocery run.
-          </p>
         </div>
-        <Button
-          type="button"
-          onClick={onView}
-          className="mt-5 w-full shrink-0 rounded-xl sm:mt-0 sm:w-auto"
-        >
+        <Button type="button" onClick={onView} className="w-full rounded-xl sm:w-auto">
           Plan groceries <span aria-hidden="true">→</span>
         </Button>
       </section>
