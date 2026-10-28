@@ -1,125 +1,89 @@
-import { NextResponse } from "next/server";
-import { eq } from "drizzle-orm";
-import { adminAuth } from "@/lib/firebase/admin";
-import { db } from "@/lib/db";
-import { inventoryItems } from "@/lib/db/schema";
-import { sendBrevoEmail } from "@/lib/email/brevo";
-import { buildLowStockEmail } from "@/lib/email/templates";
+import "server-only";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
+const BREVO_ENDPOINT = "https://api.brevo.com/v3/smtp/email";
+
+export class BrevoError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "BrevoError";
+    this.status = status;
+  }
+}
+
+export type EmailRecipient = {
+  email: string;
+  name?: string | null;
+};
+
+export type SendEmailInput = {
+  to: EmailRecipient;
+  subject: string;
+  html: string;
+  text: string;
+  tags?: string[];
+  replyTo?: EmailRecipient;
+};
+
+function getBrevoConfig() {
+  const apiKey = process.env.BREVO_API_KEY;
+  const senderEmail = process.env.BREVO_SENDER_EMAIL;
+  const senderName = process.env.BREVO_SENDER_NAME?.trim() || "StockSync AI";
+
+  if (!apiKey || !senderEmail) {
+    throw new Error(
+      "Brevo is not configured. Set BREVO_API_KEY and BREVO_SENDER_EMAIL.",
+    );
+  }
+
+  return { apiKey, senderEmail, senderName };
+}
 
 /**
- * Emails the signed-in customer a summary of their low-stock items.
- * The recipient is always the verified email from the caller's own token,
- * so this route cannot be used to email anyone else.
+ * Sends one transactional email through Brevo's SMTP/API endpoint.
+ * Server-only: the API key never reaches the browser.
  */
-export async function POST(request: Request) {
-  const match = request.headers
-    .get("authorization")
-    ?.match(/^Bearer\s+(.+)$/i);
+export async function sendBrevoEmail(
+  input: SendEmailInput,
+): Promise<{ messageId: string }> {
+  const { apiKey, senderEmail, senderName } = getBrevoConfig();
 
-  if (!match) {
-    return NextResponse.json(
-      { error: "Authentication required." },
-      { status: 401 },
-    );
-  }
-
-  let decoded: Awaited<ReturnType<typeof adminAuth.verifyIdToken>>;
-
-  try {
-    decoded = await adminAuth.verifyIdToken(match[1]);
-  } catch {
-    return NextResponse.json(
-      { error: "Invalid or expired authentication token." },
-      { status: 401 },
-    );
-  }
-
-  if (!decoded.email) {
-    return NextResponse.json(
-      { error: "An email address is required to send this summary." },
-      { status: 403 },
-    );
-  }
-
-  let lowStock: {
-    name: string;
-    quantity: string;
-    unit: string;
-    lowStockThreshold: string;
-  }[];
-
-  try {
-    const rows = await db
-      .select({
-        name: inventoryItems.name,
-        quantity: inventoryItems.quantity,
-        unit: inventoryItems.unit,
-        lowStockThreshold: inventoryItems.lowStockThreshold,
-      })
-      .from(inventoryItems)
-      .where(eq(inventoryItems.ownerUid, decoded.uid));
-
-    lowStock = rows.filter((row) => {
-      const quantity = Number(row.quantity);
-      const threshold = Number(row.lowStockThreshold);
-      return (
-        Number.isFinite(quantity) &&
-        Number.isFinite(threshold) &&
-        quantity <= threshold
-      );
-    });
-  } catch {
-    return NextResponse.json(
-      { error: "Unable to read your inventory right now." },
-      { status: 500 },
-    );
-  }
-
-  if (lowStock.length === 0) {
-    return NextResponse.json({
-      ok: true,
-      sent: false,
-      message: "Nothing is running low right now, so no email was sent.",
-    });
-  }
-
-  const recipientName = typeof decoded.name === "string" ? decoded.name : null;
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL?.trim() || null;
-
-  const content = buildLowStockEmail({
-    recipientName,
-    items: lowStock,
-    appUrl,
+  const response = await fetch(BREVO_ENDPOINT, {
+    method: "POST",
+    headers: {
+      "api-key": apiKey,
+      "content-type": "application/json",
+      accept: "application/json",
+    },
+    body: JSON.stringify({
+      sender: { name: senderName, email: senderEmail },
+      to: [
+        {
+          email: input.to.email,
+          ...(input.to.name ? { name: input.to.name } : {}),
+        },
+      ],
+      subject: input.subject,
+      htmlContent: input.html,
+      textContent: input.text,
+      ...(input.tags?.length ? { tags: input.tags } : {}),
+      ...(input.replyTo ? { replyTo: input.replyTo } : {}),
+    }),
+    cache: "no-store",
   });
 
-  try {
-    const { messageId } = await sendBrevoEmail({
-      to: { email: decoded.email, name: recipientName },
-      subject: content.subject,
-      html: content.html,
-      text: content.text,
-      tags: ["low-stock"],
-    });
+  const payload = (await response.json().catch(() => ({}))) as {
+    messageId?: string;
+    message?: string;
+  };
 
-    return NextResponse.json({
-      ok: true,
-      sent: true,
-      to: decoded.email,
-      messageId,
-    });
-  } catch (error) {
-    // Log only the status and a short reason; never log keys or the full payload.
-    console.error(
-      "Low-stock email failed:",
-      error instanceof Error ? error.message : "unknown error",
-    );
-
-    return NextResponse.json(
-      { error: "We couldn't send the email right now. Please try again shortly." },
-      { status: 502 },
+  if (!response.ok) {
+    throw new BrevoError(
+      payload.message ?? `Brevo responded with status ${response.status}.`,
+      response.status,
     );
   }
+
+  return { messageId: payload.messageId ?? "" };
 }
