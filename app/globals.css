@@ -9,3 +9,164 @@ body { @apply bg-paper text-ink font-sans antialiased; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-delay: 0s !important; transition-duration: .01ms !important; }
 }
+
+/* StockSync AI — responsive motion system */
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 20px;
+}
+
+body {
+  overflow-x: hidden;
+}
+
+button,
+a,
+input,
+select,
+textarea {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button,
+a {
+  transition:
+    background-color 180ms ease,
+    border-color 180ms ease,
+    color 180ms ease,
+    box-shadow 180ms ease,
+    transform 180ms ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  button:hover:not(:disabled) {
+    transform: translateY(-1px);
+  }
+}
+
+/* Reusable entrance animations */
+@keyframes ss-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes ss-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes ss-soft-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .68; }
+}
+
+.ss-animate-in {
+  animation: ss-fade-up 550ms cubic-bezier(.2, .7, .2, 1) both;
+}
+
+.ss-fade-in {
+  animation: ss-fade-in 400ms ease both;
+}
+
+.ss-stagger > * {
+  animation: ss-fade-up 500ms cubic-bezier(.2, .7, .2, 1) both;
+}
+
+.ss-stagger > *:nth-child(1) { animation-delay: 40ms; }
+.ss-stagger > *:nth-child(2) { animation-delay: 100ms; }
+.ss-stagger > *:nth-child(3) { animation-delay: 160ms; }
+.ss-stagger > *:nth-child(4) { animation-delay: 220ms; }
+.ss-stagger > *:nth-child(5) { animation-delay: 280ms; }
+.ss-stagger > *:nth-child(6) { animation-delay: 340ms; }
+
+.ss-card {
+  min-width: 0;
+  transition:
+    transform 220ms ease,
+    box-shadow 220ms ease,
+    border-color 220ms ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .ss-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 14px 34px rgba(15, 23, 42, .07);
+  }
+}
+
+/* Prevent long content from breaking phone layouts */
+img,
+svg,
+video,
+canvas {
+  max-width: 100%;
+}
+
+input,
+select,
+textarea {
+  max-width: 100%;
+}
+
+/* Phone and tablet layout safeguards */
+@media (max-width: 767px) {
+  html {
+    scroll-padding-top: 12px;
+  }
+
+  body {
+    font-size: 15px;
+  }
+
+  main,
+  section,
+  article {
+    min-width: 0;
+  }
+
+  button,
+  a {
+    touch-action: manipulation;
+  }
+
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+
+  .ss-animate-in {
+    animation-duration: 380ms;
+  }
+
+  .ss-stagger > * {
+    animation-duration: 380ms;
+  }
+
+  .ss-card:hover {
+    transform: none;
+  }
+}
+
+/* Respect accessibility settings */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: .01ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: .01ms !important;
+  }
+}

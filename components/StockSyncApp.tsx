@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState } from "react";
 import type { Cart } from "@/lib/types";
@@ -28,7 +28,7 @@ export default function StockSyncApp() {
   };
 
   return (
-    <div className="mx-auto min-h-screen max-w-3xl px-4 pb-16 pt-5 sm:px-6">
+    <div className="mx-auto min-h-screen w-full max-w-[1600px] px-4 pb-16 pt-5 sm:px-6 lg:px-8 xl:px-10">
       <Header onHome={() => go("dashboard")} />
       <Stepper screen={screen} />
 
@@ -59,3 +59,4 @@ export default function StockSyncApp() {
     </div>
   );
 }
+
